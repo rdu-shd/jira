@@ -401,6 +401,12 @@ class JIRA(object):
             return False
         return True
 
+    def _get_sprint_field_id(self):
+        sprint_field_name = "Sprint"
+        sprint_field_id = [f['schema']['customId'] for f in self.fields()
+                           if f['name'] == sprint_field_name][0]
+        return sprint_field_id
+
     def _fetch_pages(self, item_type, items_key, request_path, startAt=0, maxResults=50, params=None, base=JIRA_BASE_URL):
         """Fetch pages.
 
@@ -437,7 +443,7 @@ class JIRA(object):
             if isinstance(resource, dict):
                 total = resource.get('total')
                 # 'isLast' is the optional key added to responses in JIRA Agile 6.7.6. So far not used in basic JIRA API.
-                is_last = resource.get('isLast', True)
+                is_last = resource.get('isLast', False)
                 start_at_from_response = resource.get('startAt', 0)
                 max_results_from_response = resource.get('maxResults', 1)
             else:
@@ -1344,7 +1350,7 @@ class JIRA(object):
         return id
 
     @translate_resource_args
-    def transition_issue(self, issue, transition, fields=None, comment=None, **fieldargs):
+    def transition_issue(self, issue, transition, fields=None, comment=None, worklog=None, **fieldargs):
         """Perform a transition on an issue.
 
         Each keyword argument (other than the predefined ones) is treated as a field name and the argument's value
@@ -1373,6 +1379,8 @@ class JIRA(object):
                 'id': transitionId}}
         if comment:
             data['update'] = {'comment': [{'add': {'body': comment}}]}
+        if worklog:
+            data['update'] = {'worklog': [{'add': {'timeSpent': worklog}}]}
         if fields is not None:
             data['fields'] = fields
         else:
@@ -3146,10 +3154,7 @@ class JIRA(object):
             # issue.update() to perform this operation
             # Workaround based on https://answers.atlassian.com/questions/277651/jira-agile-rest-api-example
 
-            # Get the customFieldId for "Sprint"
-            sprint_field_name = "Sprint"
-            sprint_field_id = [f['schema']['customId'] for f in self.fields()
-                               if f['name'] == sprint_field_name][0]
+            sprint_field_id = self._get_sprint_field_id()
 
             data = {'idOrKeys': issue_keys, 'customFieldId': sprint_field_id,
                     'sprintId': sprint_id, 'addToBacklog': False}
@@ -3230,6 +3235,17 @@ class JIRA(object):
                     warnings.warn('Status code 404 may mean, that too old JIRA Agile version is installed.'
                                   ' At least version 6.7.10 is required.')
                 raise
+        elif self._options['agile_rest_path'] == GreenHopperResource.GREENHOPPER_REST_PATH:
+            # In old, private API the function does not exist anymore and we need to use
+            # issue.update() to perform this operation
+            # Workaround based on https://answers.atlassian.com/questions/277651/jira-agile-rest-api-example
+
+            sprint_field_id = self._get_sprint_field_id()
+
+            data = {'idOrKeys': issue_keys, 'customFieldId': sprint_field_id,
+                    'addToBacklog': True}
+            url = self._get_url('sprint/rank', base=self.AGILE_BASE_URL)
+            return self._session.put(url, data=json.dumps(data))
         else:
             raise NotImplementedError('No API for moving issues to backlog for agile_rest_path="%s"' %
                                       self._options['agile_rest_path'])
