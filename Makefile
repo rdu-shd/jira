@@ -25,6 +25,12 @@ package:
 
 req:
 	@$(PREFIX)requires.io update-site -t ac3bbcca32ae03237a6aae2b02eb9411045489bb -r $(PACKAGE_NAME)
+<<<<<<< HEAD
+=======
+
+hooks:
+	@$(PREFIX)python -m flake8 --install-hook 2>/dev/null || true
+>>>>>>> upstream/develop
 
 install: prepare
 	$(PREFIX)pip install .
@@ -54,7 +60,10 @@ testspace:
 lint:
 	@echo "INFO:	linting...."
 	$(PREFIX)python -m flake8
+<<<<<<< HEAD
 	@$(PREFIX)python -m flake8 --install-hook 2>/dev/null || true
+=======
+>>>>>>> upstream/develop
 
 test: prepare lint
 	@echo "INFO:	test"
@@ -94,13 +103,24 @@ else
 endif
 
 upload:
+	rm -f dist/*
 ifeq ($(GIT_BRANCH),develop)
 	@echo "INFO:	Upload package to testpypi.python.org"
 	$(PREFIX)python setup.py check --restructuredtext --strict
+<<<<<<< HEAD
 	$(PREFIX)python setup.py sdist bdist_wheel upload -r https://testpypi.python.org/pypi
+=======
+	$(PREFIX)python setup.py sdist bdist_wheel
+	$(PREFIX)twine upload --repository-url https://test.pypi.org/legacy/ dist/*
+>>>>>>> upstream/develop
 endif
 ifeq ($(GIT_BRANCH),master)
 	@echo "INFO:	Upload package to pypi.python.org"
 	$(PREFIX)python setup.py check --restructuredtext --strict
+<<<<<<< HEAD
 	$(PREFIX)python setup.py sdist bdist_wheel upload
+=======
+	$(PREFIX)python setup.py sdist bdist_wheel
+	$(PREFIX)twine upload dist/*
+>>>>>>> upstream/develop
 endif

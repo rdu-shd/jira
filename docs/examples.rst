@@ -44,6 +44,16 @@ authentication. These sessions will apply to all subsequent calls to the JIRA ob
 
 The library is able to load the credentials from inside the ~/.netrc file, so put them there instead of keeping them in your source code.
 
+Cookie Based Authentication
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Pass a tuple of (username, password) to the ``auth`` constructor argument::
+
+    authed_jira = JIRA(auth=('username', 'password'))
+
+Using this method, authentication happens during then initialization of the object. If the authentication is successful,
+the retrieved session cookie will be used in future requests. Upon cookie expiration, authentication will happen again transparently.
+
 HTTP BASIC
 ^^^^^^^^^^
 
@@ -219,6 +229,10 @@ Searching
 Leverage the power of `JQL <https://confluence.atlassian.com/display/JIRA/Advanced+Searching>`_
 to quickly find the issues you want::
 
+<<<<<<< HEAD
+=======
+    # Search returns first 50 results, `maxResults` must be set to exceed this
+>>>>>>> upstream/develop
     issues_in_proj = jira.search_issues('project=PROJ')
     all_proj_issues_but_mine = jira.search_issues('project=PROJ and assignee != currentUser()')
 
@@ -226,7 +240,8 @@ to quickly find the issues you want::
     oh_crap = jira.search_issues('assignee = currentUser() and due < endOfWeek() order by priority desc', maxResults=5)
 
     # Summaries of my last 3 reported issues
-    print [issue.fields.summary for issue in jira.search_issues('reporter = currentUser() order by created desc', maxResults=3)]
+    for issue in jira.search_issues('reporter = currentUser() order by created desc', maxResults=3):
+        print('{}: {}'.format(issue.key, issue.fields.summary))
 
 Comments
 --------
@@ -267,7 +282,7 @@ Then perform a transition on an issue::
     jira.transition_issue(issue, '5', assignee={'name': 'pm_user'}, resolution={'id': '3'})
 
     # The above line is equivalent to:
-    jira.transition_issue(issue, '5', fields: {'assignee':{'name': 'pm_user'}, 'resolution':{'id': '3'}})
+    jira.transition_issue(issue, '5', fields={'assignee':{'name': 'pm_user'}, 'resolution':{'id': '3'}})
 
 Projects
 --------

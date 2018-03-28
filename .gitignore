@@ -12,7 +12,7 @@
 .coverage.*
 .eggs/
 .tox/
-amps-standalone
+amps-standalone*
 coverage.xml
 docs/_build
 docs/build
@@ -30,3 +30,4 @@ tests/test-reports-*/*
 /ChangeLog
 /AUTHORS
 /tests/build
+/.pytest_cache

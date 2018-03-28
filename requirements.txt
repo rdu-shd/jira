@@ -1,6 +1,10 @@
 argparse; python_version<'3.2'
 defusedxml
 ordereddict; python_version<'3.1'
+<<<<<<< HEAD
+=======
+pbr>=3.0.0
+>>>>>>> upstream/develop
 requests-oauthlib>=0.6.1
 requests>=2.10.0
 requests_toolbelt
