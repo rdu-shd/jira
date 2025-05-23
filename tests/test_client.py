@@ -1,44 +1,42 @@
-from flaky import flaky
+from __future__ import annotations
+
 import getpass
-import json
+import logging
+from unittest import mock
+
 import pytest
-from tests import get_unique_project_name
-from tests import JiraTestManager
-import time
+import requests.sessions
 
-from jira import Role, Issue, JIRA, JIRAError, Project  # noqa
 import jira.client
+from jira.exceptions import JIRAError, NotJIRAInstanceError
+from tests.conftest import JiraTestManager, get_unique_project_name
 
 
-@pytest.fixture(scope='module')
-def test_manager():
+@pytest.fixture()
+def prep():
+    pass
+
+
+@pytest.fixture(scope="module")
+def test_manager() -> JiraTestManager:
     return JiraTestManager()
 
 
 @pytest.fixture()
-def cl_admin(test_manager):
+def cl_admin(test_manager: JiraTestManager) -> jira.client.JIRA:
     return test_manager.jira_admin
 
 
 @pytest.fixture()
-def cl_normal(test_manager):
+def cl_normal(test_manager: JiraTestManager) -> jira.client.JIRA:
     return test_manager.jira_normal
 
 
-@pytest.fixture(scope='function')
-def slug(request, cl_admin):
-    def remove_by_slug():
-        try:
-            cl_admin.delete_project(slug)
-        except ValueError:
-            # Some tests have project already removed, so we stay silent
-            pass
-
+@pytest.fixture(scope="function")
+def slug(request: pytest.FixtureRequest, cl_admin: jira.client.JIRA):
+    """Project slug."""
     slug = get_unique_project_name()
-
-    project_name = (
-        "Test user=%s key=%s A" % (getpass.getuser(), slug)
-    )
+    project_name = f"Test user={getpass.getuser()} key={slug} A"
 
     try:
         proj = cl_admin.project(slug)
@@ -46,84 +44,366 @@ def slug(request, cl_admin):
         proj = cl_admin.create_project(slug, project_name)
     assert proj
 
-    request.addfinalizer(remove_by_slug)
-
-    return slug
-
-
-@flaky
-@pytest.mark.xfail(reason='fails often but only with Travis')
-def test_delete_project(cl_admin, cl_normal, slug):
-    time.sleep(6)  # with <=5s was failing often
-
-    with pytest.raises(JIRAError) as ex:
-        assert cl_normal.delete_project(slug)
-
-    assert 'Not enough permissions to delete project' in str(ex.value)
-
+    yield slug
     try:
+        cl_admin.delete_project(slug, enable_undo=False)
+    except (ValueError, JIRAError):
+        # Some tests have project already removed, so we stay silent
+        pass
+
+
+@pytest.fixture(scope="session")
+def stream_logger():
+    logger = logging.getLogger("test_logger")
+    logger.addHandler(logging.StreamHandler())
+    return logger
+
+
+@pytest.fixture(scope="session")
+def mock_not_jira_client(stream_logger):
+    class MockClient:
+        def __init__(self, is_cloud=False):
+            self.is_cloud = is_cloud
+            self.log = stream_logger
+
+        @property
+        def _is_cloud(self):
+            return self.is_cloud
+
+        @jira.client.cloud_api
+        def mock_cloud_only_method(self, *args, **kwargs):
+            return args, kwargs
+
+        @jira.client.experimental_atlassian_api
+        def mock_experimental_method(self, *args, **kwargs):
+            return args, kwargs
+
+        @jira.client.experimental_atlassian_api
+        def mock_method_raises_jira_error(self, *args, **kwargs):
+            raise JIRAError(**kwargs)
+
+    return MockClient
+
+
+@pytest.fixture(scope="session")
+def mock_jira_client(stream_logger):
+    class MockClient(jira.client.JIRA):
+        def __init__(self, is_cloud=False):
+            self.is_cloud = is_cloud
+            self.log = stream_logger
+
+        @property
+        def _is_cloud(self):
+            return self.is_cloud
+
+        @jira.client.cloud_api
+        def mock_cloud_only_method(self, *args, **kwargs):
+            return args, kwargs
+
+        @jira.client.experimental_atlassian_api
+        def mock_experimental_method(self, *args, **kwargs):
+            return args, kwargs
+
+        @jira.client.experimental_atlassian_api
+        def mock_method_raises_jira_error(self, *args, **kwargs):
+            raise JIRAError(**kwargs)
+
+    return MockClient
+
+
+@pytest.fixture(scope="session")
+def mock_response():
+    class MockResponse:
+        def __init__(self, status_code=404):
+            self.status_code = status_code
+            self.url = "some/url/that/does/not/exist"
+
+    return MockResponse
+
+
+def test_delete_project(cl_admin, cl_normal, slug):
+    assert cl_admin.delete_project(slug)
+
+
+def test_delete_inexistent_project(cl_admin):
+    slug = "abogus123"
+    with pytest.raises(JIRAError) as ex:
         assert cl_admin.delete_project(slug)
-    except Exception as e:
-        e.message += " slug=%s" % slug
-        raise
+
+    assert "No project could be found with key" in str(
+        ex.value
+    ) or f'Parameter pid="{slug}" is not a Project, projectID or slug' in str(ex.value)
 
 
-def test_delete_inexistant_project(cl_admin):
-    slug = 'abogus123'
-    with pytest.raises(ValueError) as ex:
-        assert cl_admin.delete_project(slug)
+def test_templates(cl_admin):
+    templates = set(cl_admin.templates())
+    expected_templates = set(
+        filter(
+            None,
+            """
+Basic software development
+Kanban software development
+Process management
+Project management
+Scrum software development
+Task management
+""".split("\n"),
+        )
+    )
 
-    assert (
-        'Parameter pid="%s" is not a Project, projectID or slug' % slug in
-        str(ex.value)
+    assert templates == expected_templates
+
+
+def test_result_list():
+    iterable = [2, 3]
+    startAt = 0
+    maxResults = 50
+    total = 2
+
+    results = jira.client.ResultList(iterable, startAt, maxResults, total)
+
+    for idx, result in enumerate(results):
+        assert results[idx] == iterable[idx]
+
+    assert next(results) == iterable[0]
+    assert next(results) == iterable[1]
+
+    with pytest.raises(StopIteration):
+        next(results)
+
+
+def test_result_list_if_empty():
+    results = jira.client.ResultList()
+
+    for r in results:
+        raise AssertionError("`results` should be empty")
+
+    with pytest.raises(StopIteration):
+        next(results)
+
+
+@pytest.mark.parametrize(
+    "options_arg",
+    [
+        {"headers": {"Content-Type": "application/json;charset=UTF-8"}},
+        {"headers": {"random-header": "nice random"}},
+    ],
+    ids=["overwrite", "new"],
+)
+def test_headers_unclobbered_update(options_arg, no_fields):
+    assert "headers" in options_arg, "test case options must contain headers"
+
+    # GIVEN: the headers and the expected value
+    header_to_check: str = list(options_arg["headers"].keys())[0]
+    expected_header_value: str = options_arg["headers"][header_to_check]
+
+    invariant_header_name: str = "X-Atlassian-Token"
+    invariant_header_value: str = jira.client.JIRA.DEFAULT_OPTIONS["headers"][
+        invariant_header_name
+    ]
+
+    # We arbitrarily chose a header to check it remains unchanged/unclobbered
+    # so should not be overwritten by a test case
+    assert invariant_header_name not in options_arg["headers"], (
+        f"{invariant_header_name} is checked as not being overwritten in this test"
+    )
+
+    # WHEN: we initialise the JIRA class and get the headers
+    jira_client = jira.client.JIRA(
+        server="https://jira.atlasian.com",
+        get_server_info=False,
+        validate=False,
+        options=options_arg,
+    )
+
+    session_headers = jira_client._session.headers
+
+    # THEN: we have set the right headers and not affect the other headers' defaults
+    assert session_headers[header_to_check] == expected_header_value
+    assert session_headers[invariant_header_name] == invariant_header_value
+
+
+def test_headers_unclobbered_update_with_no_provided_headers(no_fields):
+    options_arg = {}  # a dict with "headers" not set
+
+    # GIVEN:the headers and the expected value
+    invariant_header_name: str = "X-Atlassian-Token"
+    invariant_header_value: str = jira.client.JIRA.DEFAULT_OPTIONS["headers"][
+        invariant_header_name
+    ]
+
+    # WHEN: we initialise the JIRA class with no provided headers and get the headers
+    jira_client = jira.client.JIRA(
+        server="https://jira.atlasian.com",
+        get_server_info=False,
+        validate=False,
+        options=options_arg,
+    )
+
+    session_headers = jira_client._session.headers
+
+    # THEN: we have not affected the other headers' defaults
+    assert session_headers[invariant_header_name] == invariant_header_value
+
+
+def test_token_auth(cl_admin: jira.client.JIRA):
+    """Tests the Personal Access Token authentication works."""
+    # GIVEN: We have a PAT token created by a user.
+    pat_token_request = {
+        "name": "my_new_token",
+        "expirationDuration": 1,
+    }
+    base_url = cl_admin.server_url
+    pat_token_response = cl_admin._session.post(
+        f"{base_url}/rest/pat/latest/tokens", json=pat_token_request
+    ).json()
+    new_token = pat_token_response["rawToken"]
+
+    # WHEN: A new client is authenticated with this token
+    new_jira_client = jira.client.JIRA(token_auth=new_token)
+
+    # THEN: The reported authenticated user of the token
+    # matches the original token creator user.
+    assert cl_admin.myself() == new_jira_client.myself()
+
+
+def test_bearer_token_auth():
+    my_token = "cool-token"
+    token_auth_jira = jira.client.JIRA(
+        server="https://what.ever",
+        token_auth=my_token,
+        get_server_info=False,
+        validate=False,
+    )
+    method_send = token_auth_jira._session.send
+    with mock.patch.object(token_auth_jira._session, method_send.__name__) as mock_send:
+        token_auth_jira._session.get(token_auth_jira.server_url)
+        prepared_req: requests.sessions.PreparedRequest = mock_send.call_args[0][0]
+        assert prepared_req.headers["Authorization"] == f"Bearer {my_token}"
+
+
+def test_cookie_auth(test_manager: JiraTestManager):
+    """Test Cookie based authentication works.
+
+    NOTE: this is deprecated in Cloud and is not recommended in Server.
+    https://developer.atlassian.com/cloud/jira/platform/jira-rest-api-cookie-based-authentication/
+    https://developer.atlassian.com/server/jira/platform/cookie-based-authentication/
+    """
+    # GIVEN: the username and password
+    # WHEN: We create a session with cookie auth for the same server
+    cookie_auth_jira = jira.client.JIRA(
+        server=test_manager.CI_JIRA_URL,
+        auth=(test_manager.CI_JIRA_ADMIN, test_manager.CI_JIRA_ADMIN_PASSWORD),
+    )
+    # THEN: We get the same result from the API
+    assert test_manager.jira_admin.myself() == cookie_auth_jira.myself()
+
+
+def test_cookie_auth_retry():
+    """Test Cookie based authentication retry logic works."""
+    # GIVEN: arguments that will cause a 401 error
+    auth_class = jira.client.JiraCookieAuth
+    reset_func = jira.client.JiraCookieAuth._reset_401_retry_counter
+    new_options = jira.client.JIRA.DEFAULT_OPTIONS.copy()
+    new_options["auth_url"] = "/401"
+    with pytest.raises(JIRAError):
+        with mock.patch.object(auth_class, reset_func.__name__) as mock_reset_func:
+            # WHEN: We create a session with cookie auth
+            jira.client.JIRA(
+                server="https://httpstat.us",
+                options=new_options,
+                auth=("user", "pass"),
+            )
+    # THEN: We don't get a RecursionError and only call the reset_function once
+    mock_reset_func.assert_called_once()
+
+
+def test_createmeta_issuetypes_pagination(cl_normal, slug):
+    """Test createmeta_issuetypes pagination kwargs"""
+    issue_types_resp = cl_normal.createmeta_issuetypes(slug, startAt=50, maxResults=100)
+    assert issue_types_resp["startAt"] == 50
+    assert issue_types_resp["maxResults"] == 100
+
+
+def test_createmeta_fieldtypes_pagination(cl_normal, slug):
+    """Test createmeta_fieldtypes pagination kwargs"""
+    issue_types = cl_normal.createmeta_issuetypes(slug)
+    assert issue_types["total"]
+    issue_type_id = issue_types["values"][-1]["id"]
+    field_types_resp = cl_normal.createmeta_fieldtypes(
+        projectIdOrKey=slug, issueTypeId=issue_type_id, startAt=50, maxResults=100
+    )
+    assert field_types_resp["startAt"] == 50
+    assert field_types_resp["maxResults"] == 100
+
+
+@pytest.mark.parametrize(
+    "mock_client_method", ["mock_cloud_only_method", "mock_experimental_method"]
+)
+def test_not_cloud_instance(mock_not_jira_client, mock_client_method):
+    client = mock_not_jira_client()
+    with pytest.raises(NotJIRAInstanceError) as exc:
+        getattr(client, mock_client_method)()
+
+    assert str(exc.value) == (
+        "The first argument of this function must be an instance of type "
+        f"JIRA. Instance Type: {mock_not_jira_client().__class__.__name__}"
     )
 
 
-def test_template_list():
-    text = (
-    r'{"projectTemplatesGroupedByType": ['
-    ' { "projectTemplates": [ { "projectTemplateModuleCompleteKey": '
-        '"com.pyxis.greenhopper.jira:gh-scrum-template", '
-        '"name": "Scrum software development"}, '
-        '{ "projectTemplateModuleCompleteKey": '
-        '"com.pyxis.greenhopper.jira:gh-kanban-template", '
-        '"name": "Kanban software development"}, '
-        '{ "projectTemplateModuleCompleteKey": '
-        '"com.pyxis.greenhopper.jira:'
-        'basic-software-development-template",'
-        ' "name": "Basic software development"} ],'
-        ' "applicationInfo": { '
-        '"applicationName": "JIRA Software"} }, '
-        '{ "projectTypeBean": { '
-        '"projectTypeKey": "service_desk", '
-        '"projectTypeDisplayKey": "Service Desk"}, '
-        '"projectTemplates": [ { '
-        '"projectTemplateModuleCompleteKey": '
-        '"com.atlassian.servicedesk:classic-service-desk-project", '
-        '"name": "Basic Service Desk"},'
-        ' { "projectTemplateModuleCompleteKey": '
-        '"com.atlassian.servicedesk:itil-service-desk-project",'
-        ' "name": "IT Service Desk"} ], '
-        '"applicationInfo": { '
-        '"applicationName": "JIRA Service Desk"} }, '
-        '{ "projectTypeBean": { '
-        '"projectTypeKey": "business", '
-        '"projectTypeDisplayKey": "Business"}, '
-        '"projectTemplates": [ { '
-        '"projectTemplateModuleCompleteKey": '
-        '"com.atlassian.jira-core-project-templates:jira-core-task-management", '
-        '"name": "Task management"}, {'
-        ' "projectTemplateModuleCompleteKey": '
-        '"com.atlassian.jira-core-project-templates:jira-core-project-management", '
-        '"name": "Project management"}, { '
-        '"projectTemplateModuleCompleteKey": '
-        '"com.atlassian.jira-core-project-templates:jira-core-process-management", '
-        '"name": "Process management"} ], '
-        '"applicationInfo": { "applicationName": "JIRA Core"} }],'
-        ' "maxNameLength": 80, "minNameLength": 2, "maxKeyLength": 10 }'
-    )  # noqa
-    j = json.loads(text)
-    template_list = jira.client._get_template_list(j)
-    assert [t['name'] for t in template_list] == ["Scrum software development", "Kanban software development", "Basic software development",
-                                                  "Basic Service Desk", "IT Service Desk", "Task management", "Project management",
-                                                  "Process management"]
+@mock.patch("requests.Session.request")
+def test_cloud_api(mock_request, mock_jira_client):
+    mock_client = mock_jira_client(is_cloud=True)
+    out = mock_client.mock_cloud_only_method("one", two="three")
+    assert out is not None
+
+
+@mock.patch("requests.Session.request")
+def test_cloud_api_not_cloud_server(mock_request, mock_jira_client, caplog):
+    mock_client = mock_jira_client()
+    mock_client.mock_cloud_only_method()
+    assert caplog.messages[0] == (
+        "This functionality is not available on Jira Data Center (Server) version."
+    )
+
+
+@mock.patch("requests.Session.request")
+def test_experimental(mock_request, mock_jira_client):
+    out = mock_jira_client().mock_experimental_method("one", two="three")
+    assert out is not None
+
+
+@pytest.mark.parametrize("http_status_code", [404, 405])
+@mock.patch("requests.Session.request")
+def test_experimental_missing_or_not_allowed(
+    mock_request, mock_jira_client, mock_response, http_status_code, caplog
+):
+    mock_response = mock_response(status_code=http_status_code)
+    response = mock_jira_client().mock_method_raises_jira_error(
+        response=mock_response,
+        request=mock_response,
+        status_code=mock_response.status_code,
+    )
+    assert response is None
+    assert caplog.messages[0] == (
+        f"Functionality at path {mock_response.url} is/was experimental. Status Code: "
+        f"{mock_response.status_code}"
+    )
+
+
+@mock.patch("requests.Session.request")
+def test_experimental_non_200_not_404_405(
+    mock_request, mock_jira_client, mock_response
+):
+    status_code = 400
+    mock_response = mock_response(status_code=status_code)
+
+    with pytest.raises(JIRAError) as ex:
+        mock_jira_client().mock_method_raises_jira_error(
+            response=mock_response,
+            request=mock_response,
+            status_code=mock_response.status_code,
+        )
+
+    assert ex.value.status_code == status_code
+    assert isinstance(ex.value, JIRAError)

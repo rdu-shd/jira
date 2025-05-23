@@ -1,20 +1,17 @@
 Examples
 ********
 
-.. contents:: Contents
-   :local:
-
 Here's a quick usage example:
 
 .. literalinclude:: ../examples/basic_use.py
 
-Another example shows how to authenticate with your JIRA username and password:
+Another example with methods to authenticate with your Jira:
 
-.. literalinclude:: ../examples/basic_auth.py
+.. literalinclude:: ../examples/auth.py
 
-This example shows how to work with GreenHopper:
+This example shows how to work with Jira Agile / Jira Software (formerly GreenHopper):
 
-.. literalinclude:: ../examples/greenhopper.py
+.. literalinclude:: ../examples/agile.py
 
 
 Quickstart
@@ -23,33 +20,72 @@ Quickstart
 Initialization
 --------------
 
-Everything goes through the JIRA object, so make one::
+Everything goes through the :py:class:`jira.client.JIRA` object, so make one::
 
     from jira import JIRA
 
     jira = JIRA()
 
-This connects to a JIRA started on your local machine at http://localhost:2990/jira, which not coincidentally is the
-default address for a JIRA instance started from the Atlassian Plugin SDK.
+This connects to a Jira started on your local machine at http://localhost:2990/jira, which not coincidentally is the
+default address for a Jira instance started from the Atlassian Plugin SDK.
 
-You can manually set the JIRA server to use::
+You can manually set the Jira server to use::
 
-    jac = JIRA('https://jira.atlassian.com')
+    jira = JIRA('https://jira.atlassian.com')
 
 Authentication
 --------------
 
 At initialization time, jira-python can optionally create an HTTP BASIC or use OAuth 1.0a access tokens for user
-authentication. These sessions will apply to all subsequent calls to the JIRA object.
+authentication. These sessions will apply to all subsequent calls to the  :py:class:`jira.client.JIRA` object.
 
 The library is able to load the credentials from inside the ~/.netrc file, so put them there instead of keeping them in your source code.
+
+Cookie Based Authentication
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. warning::
+    This method of authentication is no longer supported on Jira Cloud. You can find the deprecation notice `here <https://developer.atlassian.com/cloud/jira/platform/deprecation-notice-basic-auth-and-cookie-based-auth>`_.
+
+    For Jira Cloud use the basic_auth= :ref:`basic-auth-api-token` authentication
+
+Pass a tuple of (username, password) to the ``auth`` constructor argument::
+
+    auth_jira = JIRA(auth=('username', 'password'))
+
+Using this method, authentication happens during the initialization of the object. If the authentication is successful,
+the retrieved session cookie will be used in future requests. Upon cookie expiration, authentication will happen again transparently.
+
 
 HTTP BASIC
 ^^^^^^^^^^
 
+(username, password)
+""""""""""""""""""""
+
+.. warning::
+    This method of authentication is no longer supported on Jira Cloud. You can find the deprecation notice `here <https://developer.atlassian.com/cloud/jira/platform/deprecation-notice-basic-auth-and-cookie-based-auth>`_
+
+    For Jira Cloud use the basic_auth= :ref:`basic-auth-api-token` authentication.
+    For Self Hosted Jira (Server, Data Center), consider the `Token Auth`_ authentication.
+
 Pass a tuple of (username, password) to the ``basic_auth`` constructor argument::
 
-    authed_jira = JIRA(basic_auth=('username', 'password'))
+    auth_jira = JIRA(basic_auth=('username', 'password'))
+
+.. _basic-auth-api-token:
+
+(username, api_token)
+"""""""""""""""""""""
+
+
+Or pass a tuple of (email, api_token) to the ``basic_auth`` constructor argument (JIRA Cloud)::
+
+    auth_jira = JIRA(basic_auth=('email', 'API token'))
+
+.. seealso::
+    For Self Hosted Jira (Server, Data Center), refer to the `Token Auth`_ Section.
+
 
 OAuth
 ^^^^^
@@ -62,41 +98,79 @@ Pass a dict of OAuth properties to the ``oauth`` constructor argument::
         key_cert_data = key_cert_file.read()
 
     oauth_dict = {
-        'access_token': 'd87f3hajglkjh89a97f8',
-        'access_token_secret': 'a9f8ag0ehaljkhgeds90',
+        'access_token': 'foo',
+        'access_token_secret': 'bar',
         'consumer_key': 'jira-oauth-consumer',
         'key_cert': key_cert_data
     }
-    authed_jira = JIRA(oauth=oauth_dict)
+    auth_jira = JIRA(oauth=oauth_dict)
 
 .. note ::
     The OAuth access tokens must be obtained and authorized ahead of time through the standard OAuth dance. For
     interactive use, ``jirashell`` can perform the dance with you if you don't already have valid tokens.
 
-.. note ::
-    OAuth in Jira uses RSA-SHA1 which requires the PyCrypto library. PyCrypto is **not** installed automatically
-    when installing jira-python. See also the :ref:`Dependencies`. section above.
-
 * The access token and token secret uniquely identify the user.
-* The consumer key must match the OAuth provider configured on the JIRA server.
-* The key cert data must be the private key that matches the public key configured on the JIRA server's OAuth provider.
+* The consumer key must match the OAuth provider configured on the Jira server.
+* The key cert data must be the private key that matches the public key configured on the Jira server's OAuth provider.
 
 See https://confluence.atlassian.com/display/JIRA/Configuring+OAuth+Authentication+for+an+Application+Link for details
-on configuring an OAuth provider for JIRA.
+on configuring an OAuth provider for Jira.
+
+Token Auth
+^^^^^^^^^^
+
+
+Jira Cloud
+""""""""""
+
+This is also referred to as an API Token in the
+`Jira Cloud documentation <https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/>`_ ::
+
+    auth_jira = JIRA(basic_auth=('email', 'API token'))
+
+
+Jira Self Hosted (incl. Jira Server/Data Center)
+""""""""""""""""""""""""""""""""""""""""""""""""
+
+This is also referred to as Personal Access Tokens (PATs) in the
+`Self-Hosted Documentation <https://confluence.atlassian.com/enterprise/using-personal-access-tokens-1026032365.html>`_.
+The is available from Jira Core >= 8.14::
+
+    auth_jira = JIRA(token_auth='API token')
+
 
 Kerberos
 ^^^^^^^^
 
 To enable Kerberos auth, set ``kerberos=True``::
 
-    authed_jira = JIRA(kerberos=True)
+    auth_jira = JIRA(kerberos=True)
+
+To pass additional options to Kerberos auth use dict ``kerberos_options``, e.g.::
+
+    auth_jira = JIRA(kerberos=True, kerberos_options={'mutual_authentication': 'DISABLED'})
 
 .. _jirashell-label:
+
+Headers
+-------
+
+Headers can be provided to the internally used ``requests.Session``.
+If the user provides a header that the :py:class:`jira.client.JIRA` also attempts to set, the user provided header will take preference.
+
+For example if you want to use a custom User Agent::
+
+    from requests_toolbelt import user_agent
+
+    jira = JIRA(
+        basic_auth=("email", "API token"),
+        options={"headers": {"User-Agent": user_agent("my_package", "0.0.1")}},
+    )
 
 Issues
 ------
 
-Issues are objects. You get hold of them through the JIRA object::
+Issues are objects. You get hold of them through the ``JIRA`` object::
 
     issue = jira.issue('JRA-1330')
 
@@ -114,6 +188,10 @@ Reassign an issue::
 
     # requires issue assign permission, which is different from issue editing permission!
     jira.assign_issue(issue, 'newassignee')
+
+If you want to unassign it again, just do::
+
+    jira.assign_issue(issue, None)
 
 Creating issues is easy::
 
@@ -154,7 +232,7 @@ You can even bulk create multiple issues::
     issues = jira.create_issues(field_list=issue_list)
 
 .. note::
-    Project, summary, description and issue type are always required when creating issues. Your JIRA may require
+    Project, summary, description and issue type are always required when creating issues. Your Jira may require
     additional fields for creating issues; see the ``jira.createmeta`` method for getting access to that information.
 
 .. note::
@@ -186,21 +264,46 @@ Updating components::
         existingComponents.append({"name" : component.name})
     issue.update(fields={"components": existingComponents})
 
+Working with Rich Text
+^^^^^^^^^^^^^^^^^^^^^^
+
+You can use rich text in an issue's description or comment. In order to use rich text, the body
+content needs to be formatted using the Atlassian Document Format (ADF)::
+
+    jira = JIRA(basic_auth=("email", "API token"))
+    comment = {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "codeBlock",
+            "content": [
+              {
+                "text": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque eget venenatis elit. Duis eu justo eget augue iaculis fermentum. Sed semper quam laoreet nisi egestas at posuere augue semper.",
+                "type": "text"
+              }
+            ]
+          }
+        ]
+      }
+    jira.add_comment("AB-123", comment)
 
 Fields
 ------
 
-    issue.fields.worklogs                                 # list of Worklog objects
-    issue.fields.worklogs[0].author
-    issue.fields.worklogs[0].comment
-    issue.fields.worklogs[0].created
-    issue.fields.worklogs[0].id
-    issue.fields.worklogs[0].self
-    issue.fields.worklogs[0].started
-    issue.fields.worklogs[0].timeSpent
-    issue.fields.worklogs[0].timeSpentSeconds
-    issue.fields.worklogs[0].updateAuthor                # dictionary
-    issue.fields.worklogs[0].updated
+Example for accessing the worklogs::
+
+    issue.fields.worklog.worklogs                                 # list of Worklog objects
+    issue.fields.worklog.worklogs[0].author
+    issue.fields.worklog.worklogs[0].comment
+    issue.fields.worklog.worklogs[0].created
+    issue.fields.worklog.worklogs[0].id
+    issue.fields.worklog.worklogs[0].self
+    issue.fields.worklog.worklogs[0].started
+    issue.fields.worklog.worklogs[0].timeSpent
+    issue.fields.worklog.worklogs[0].timeSpentSeconds
+    issue.fields.worklog.worklogs[0].updateAuthor                # dictionary
+    issue.fields.worklog.worklogs[0].updated
 
 
     issue.fields.timetracking.remainingEstimate           # may be NULL or string ("0m", "2h"...)
@@ -214,6 +317,7 @@ Searching
 
 Leverage the power of `JQL <https://confluence.atlassian.com/display/JIRA/Advanced+Searching>`_
 to quickly find the issues you want::
+
     # Search returns first 50 results, `maxResults` must be set to exceed this
     issues_in_proj = jira.search_issues('project=PROJ')
     all_proj_issues_but_mine = jira.search_issues('project=PROJ and assignee != currentUser()')
@@ -222,28 +326,45 @@ to quickly find the issues you want::
     oh_crap = jira.search_issues('assignee = currentUser() and due < endOfWeek() order by priority desc', maxResults=5)
 
     # Summaries of my last 3 reported issues
-    print [issue.fields.summary for issue in jira.search_issues('reporter = currentUser() order by created desc', maxResults=3)]
+    for issue in jira.search_issues('reporter = currentUser() order by created desc', maxResults=3):
+        print('{}: {}'.format(issue.key, issue.fields.summary))
 
 Comments
 --------
 
-Comments, like issues, are objects. Get at issue comments through the parent Issue object or the JIRA object's
+Comments, like issues, are objects. Access issue comments through the parent Issue object or the ``JIRA`` object's
 dedicated method::
 
     comments_a = issue.fields.comment.comments
     comments_b = jira.comments(issue) # comments_b == comments_a
 
-Get an individual comment if you know its ID::
+Obtain an individual comment if you know its ID::
 
     comment = jira.comment('JRA-1330', '10234')
+
+Obtain comment author name and comment creation timestamp if you know its ID::
+
+    author = jira.comment('JRA-1330', '10234').author.displayName
+    time = jira.comment('JRA-1330', '10234').created
 
 Adding, editing and deleting comments is similarly straightforward::
 
     comment = jira.add_comment('JRA-1330', 'new comment')    # no Issue object required
     comment = jira.add_comment(issue, 'new comment', visibility={'type': 'role', 'value': 'Administrators'})  # for admins only
 
-    comment.update(body = 'updated comment body')
+    comment.update(body='updated comment body')
+    comment.update(body='updated comment body but no mail notification', notify=False)
     comment.delete()
+
+Get all images from a comment::
+
+    issue = jira.issue('JRA-1330')
+    regex_for_png = re.compile(r'\!(\S+?\.(jpg|png|bmp))\|?\S*?\!')
+    pngs_used_in_comment = regex_for_png.findall(issue.fields.comment.comments[0].body)
+    for attachment in issue.fields.attachment:
+        if attachment.filename in pngs_used_in_comment:
+            with open(attachment.filename, 'wb') as f:
+                f.write(attachment.get())
 
 Transitions
 -----------
@@ -276,7 +397,7 @@ Also, just like issue objects, project objects are augmented with their fields::
 
     jra = jira.project('JRA')
     print(jra.name)                 # 'JIRA'
-    print(jra.lead.displayName)     # 'Paul Slade [Atlassian]'
+    print(jra.lead.displayName)     # 'John Doe [ACME Inc.]'
 
 It's no trouble to get the components, versions or roles either (assuming you have permission)::
 
@@ -314,8 +435,8 @@ Attachments
 -----------
 
 Attachments let user add files to issues. First you'll need an issue to which the attachment will be uploaded.
-Next, you'll need file itself, that is going to be attachment. File could be file-like object or string, representing
-path on local machine. Also you can select final name of the attachment if you don't like original.
+Next, you'll need the file itself that is going to be attachment. The file could be a file-like object or string, representing
+path on the local machine. You can also modify the final name of the attachment if you don't like original.
 Here are some examples::
 
     # upload file from `/some/path/attachment.txt`
@@ -326,8 +447,8 @@ Here are some examples::
         jira.add_attachment(issue=issue, attachment=f)
 
     # attach file from memory (you can skip IO operations). In this case you MUST provide `filename`.
-    import StringIO
-    attachment = StringIO.StringIO()
+    from io import StringIO
+    attachment = StringIO()
     attachment.write(data)
     jira.add_attachment(issue=issue, attachment=attachment, filename='content.txt')
 

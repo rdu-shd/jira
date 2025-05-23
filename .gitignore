@@ -1,4 +1,4 @@
-.idea/
+.idea
 *.bak
 *.egg
 *.egg-info/
@@ -8,16 +8,17 @@
 .coverage.*
 .eggs/
 .tox/
-amps-standalone
+amps-standalone*
 coverage.xml
+dist/
 docs/_build
 docs/build
 encrypt-credentials.sh
+pip-wheel-metadata/
 reports
 reports/
 setenv.sh
 settings.py
-test-quick
 tests/settings.py
 tests/test-reports-*/*
 **/*.log
@@ -26,3 +27,9 @@ tests/test-reports-*/*
 /ChangeLog
 /AUTHORS
 /tests/build
+/.pytest_cache
+/.vscode
+/node_modules
+.mypy_cache/
+.DS_Store
+.envrc
